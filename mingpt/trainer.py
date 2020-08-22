@@ -95,10 +95,14 @@ class Trainer:
                 # forward the model
                 with torch.set_grad_enabled(is_train):
 
-                    with autocast(enabled=self.fp16):
+                    if self.fp16:
+                        with autocast():
+                            logits, loss = model(x, y)
+                    else:
                         logits, loss = model(x, y)
-                        loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
-                        losses.append(loss.item())
+
+                    loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
+                    losses.append(loss.item())
 
                 if is_train:
 
