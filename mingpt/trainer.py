@@ -98,10 +98,11 @@ class Trainer:
                     if self.fp16:
                         with autocast():
                             logits, loss = model(x, y)
+                            loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
                     else:
                         logits, loss = model(x, y)
+                        loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
 
-                    loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
                     losses.append(loss.item())
 
                 if is_train:

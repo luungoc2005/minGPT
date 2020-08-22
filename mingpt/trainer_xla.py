@@ -42,17 +42,16 @@ class TrainerConfig:
 
 class Trainer:
 
-    def __init__(self, model, train_dataset, test_dataset, config, fp16=False, device=None):
+    def __init__(self, model, train_dataset, test_dataset, config, fp16=False, report_every=500):
         self.model = model
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
         self.config = config
-        self.device = device
         self.fp16 = fp16
+        self.report_every = report_every
 
         # take over whatever gpus are on the system
-        if self.device is None:
-            self.device = xm.xla_device()
+        self.device = xm.xla_device()
 
         self.model = torch.nn.DataParallel(self.model).to(self.device)
 
@@ -100,11 +99,13 @@ class Trainer:
                     if self.fp16:
                         with autocast():
                             logits, loss = model(x, y)
+                            loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
                     else:
                         logits, loss = model(x, y)
+                        loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
 
-                    loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
-                    losses.append(loss.item())
+                    if it % self.report_every == 0:
+                        losses.append(loss.item())
 
                 if is_train:
 
@@ -145,7 +146,8 @@ class Trainer:
                         lr = config.learning_rate
 
                     # report progress
-                    pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
+                    if it % self.report_every == 0:
+                        pbar.set_description(f"epoch {epoch+1} iter {it}: train loss {loss.item():.5f}. lr {lr:e}")
 
             if not is_train:
                 logger.info("test loss: %f", np.mean(losses))
