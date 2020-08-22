@@ -59,7 +59,7 @@ class Trainer:
         if self.config.ckpt_path is not None:
             ckpt_model = self.model.module if hasattr(self.model, "module") else self.model
             logger.info("saving %s", self.config.ckpt_path)
-            torch.save(ckpt_model.state_dict(), self.config.ckpt_path)
+            xm.save(ckpt_model.state_dict(), self.config.ckpt_path)
 
     def train(self):
         model, config = self.model, self.config
