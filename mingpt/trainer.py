@@ -38,17 +38,21 @@ class TrainerConfig:
 
 class Trainer:
 
-    def __init__(self, model, train_dataset, test_dataset, config):
+    def __init__(self, model, train_dataset, test_dataset, config, fp16=False, device=None):
         self.model = model
         self.train_dataset = train_dataset
         self.test_dataset = test_dataset
         self.config = config
+        self.device = device
+        self.fp16 = fp16
 
         # take over whatever gpus are on the system
-        self.device = 'cpu'
-        if torch.cuda.is_available():
-            self.device = torch.cuda.current_device()
-            self.model = torch.nn.DataParallel(self.model).to(self.device)
+        if self.device is None:
+            self.device = 'cpu'
+            if torch.cuda.is_available():
+                self.device = torch.cuda.current_device()
+        
+        self.model = torch.nn.DataParallel(self.model).to(self.device)
 
     def save_checkpoint(self):
         if self.config.ckpt_path is not None:
@@ -68,6 +72,11 @@ class Trainer:
             {"params": params_nodecay, "weight_decay": 0.0},
         ]
         optimizer = optim.AdamW(optim_groups, lr=config.learning_rate, betas=config.betas)
+        
+        scaler = None
+        if self.fp16:
+            from torch.cuda.amp import autocast, GradScaler
+            scaler = GradScaler()
 
         def run_epoch(split):
             is_train = split == 'train'
@@ -85,20 +94,33 @@ class Trainer:
 
                 # forward the model
                 with torch.set_grad_enabled(is_train):
-                    logits, loss = model(x, y)
-                    loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
-                    losses.append(loss.item())
+
+                    with autocast(enabled=self.fp16):
+                        logits, loss = model(x, y)
+                        loss = loss.mean() # collapse all losses if they are scattered on multiple gpus
+                        losses.append(loss.item())
 
                 if is_train:
 
                     # backprop and update the parameters
                     model.zero_grad()
-                    loss.backward()
+
+                    if self.fp16:
+                        scaler.scale(loss).backward()
+                    else:
+                        loss.backward()
 
                     if config.grad_norm_clip > 0:
+                        if self.fp16:
+                            scaler.unscale_(optimizer)
+
                         torch.nn.utils.clip_grad_norm_(model.parameters(), config.grad_norm_clip)
-                        
-                    optimizer.step()
+                    
+                    if self.fp16:
+                        scaler.step(optimizer)
+                        scaler.update()
+                    else:
+                        optimizer.step()
 
                     # decay the learning rate based on our progress
                     if config.lr_decay:
@@ -130,3 +152,4 @@ class Trainer:
                 run_epoch('test')
 
             self.save_checkpoint()
+
