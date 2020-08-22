@@ -11,8 +11,12 @@ import numpy as np
 
 import torch
 import torch.optim as optim
+
 from torch.optim.lr_scheduler import LambdaLR
 from torch.utils.data.dataloader import DataLoader
+
+import torch_xla
+import torch_xla.core.xla_model as xm
 
 logger = logging.getLogger(__name__)
 
@@ -48,8 +52,6 @@ class Trainer:
 
         # take over whatever gpus are on the system
         if self.device is None:
-            import torch_xla
-            import torch_xla.core.xla_model as xm
             self.device = xm.xla_device()
 
         self.model = torch.nn.DataParallel(self.model).to(self.device)
